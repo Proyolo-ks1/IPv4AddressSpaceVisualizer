@@ -34,22 +34,20 @@ image.addEventListener('mousemove', (e) => {
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
 
-    // Get pixel coordinates relative to original 4096x4096 image
+    // Pixel coordinates relative to original image
     const scaleX = image.naturalWidth / image.width;
     const scaleY = image.naturalHeight / image.height;
     const pixelX = Math.floor(x * scaleX);
     const pixelY = Math.floor(y * scaleY);
 
-    // Show tooltip
-    tooltip.style.left = `${x + 10}px`;
+    // Position tooltip relative to viewport
+    tooltip.style.left = `${e.clientX + 10}px`;
     tooltip.style.top = `${y + 10}px`;
     tooltip.style.display = 'block';
     tooltip.textContent = `Pixel: (${pixelX}, ${pixelY})`;
 
-    // Convert pixel to Hilbert index
+    // Hilbert index / IP conversion stays the same
     const hilbertIndex = xy2d(4096, pixelX, pixelY);
-
-    // Each pixel = /24 block = 256 addresses
     const ipBase = hilbertIndex * 256;
     const ip1 = (ipBase >>> 24) & 0xFF;
     const ip2 = (ipBase >>> 16) & 0xFF;
