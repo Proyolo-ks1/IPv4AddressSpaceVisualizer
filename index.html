@@ -8,8 +8,8 @@
     <link rel="stylesheet" href="style.css" />
 
     <!-- Favicon -->
-    <link rel="icon" type="image/x-icon" href="assets\IPv4-Census-16x16-smooth-1024x.ico" />
-    <link rel="shortcut icon" type="image/x-icon" href="assets\IPv4-Census-16x16-smooth-1024x.ico" />
+    <link rel="icon" type="image/x-icon" href="assets/IPv4-Census-16x16-smooth-1024x.ico" />
+    <link rel="shortcut icon" type="image/x-icon" href="assets/IPv4-Census-16x16-smooth-1024x.ico" />
 
     <!-- Open Graph / Facebook / WhatsApp -->
     <meta property="og:title" content="Interactive IPv4 Address Space Visualizer" />
@@ -25,15 +25,59 @@
     <meta name="twitter:image" content="https://proyolo-ks1.github.io/IPv4AddressSpaceVisualizer/assets/IPv4-Census-VisualizationOfTheIPv4AddressSpace-20061108-4096x4096.png" />
   </head>
   <body>
-    <h1>Interactive IPv4 Address Space</h1>
-    <div class="main-container">
-      <div class="image-container">
-        <img id="ipv4-image" src="assets/IPv4-Census-VisualizationOfTheIPv4AddressSpace-20061108-4096x4096.png" alt="IPv4 Census" />
+    <!-- Header -->
+    <div id="header-container">
+      <h1>Interactive IPv4 Address Space</h1>
+    </div>
+
+    <!-- Main container -->
+    <div id="main-container">
+      <!-- Left General Info container -->
+      <div id="general-info-side-panel" class="side-panel">
+        <h2>Information</h2>
+
+        <p>
+          Original visualization by
+          <a href="https://www.caida.org/archive/id-consumption/#ipv4-census-map" target="_blank"> CAIDA (Center for Applied Internet Data Analysis) </a>
+        </p>
+
+        <p>
+          <a href="https://www.caida.org/archive/id-consumption/census-map/" target="_blank"> View original IPv4 Census Map </a>
+        </p>
+
+        <p style="font-size: 12px; color: #aaa">This project is an interactive reinterpretation of the IPv4 address space visualization, which maps all IPv4 /24 blocks using a 12th-order Hilbert curve.</p>
+
+        <img id="viewport-minimap" draggable="false" src="assets/IPv4-Census-VisualizationOfTheIPv4AddressSpace-20061108-512x512.png" alt="IPv4 Census" />
+      </div>
+
+      <!-- Map container -->
+      <div id="map-container">
+        <div id="image-viewport">
+          <!-- JavaScript Image Rendering -->
+          <canvas id="base-canvas"></canvas>
+          <canvas id="grid-canvas"></canvas>
+          <canvas id="overlay-canvas"></canvas>
+        </div>
+        <!-- Tooltip near cursor -->
         <div id="tooltip"></div>
       </div>
-      <div id="info-panel">
+
+      <!-- Right Info Panel -->
+      <div id="ip-info-side-panel" class="side-panel">
         <h2>IP Info</h2>
-        <div id="ip-console">Hover over the image</div>
+        <div id="ip-target-console-tooltip" class="console-output-element">Target IP: Hover over the image</div>
+        <div id="ip-range-console-tooltip" class="console-output-element">Tile IP range: Hover over the image</div>
+
+        <!-- Zoom step selector -->
+        <p>
+          <label for="zoom-step-select">Zoom Step:</label>
+          <select id="zoom-step-select">
+            <option value="2">2x</option>
+            <option value="4" selected>4x</option>
+            <option value="8">8x</option>
+            <option value="16">16x</option>
+          </select>
+        </p>
       </div>
     </div>
     <script src="script.js"></script>
