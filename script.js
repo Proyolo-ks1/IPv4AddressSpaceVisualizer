@@ -375,7 +375,7 @@ function drawHilbertOverlay() {
     const points = [];
 
     ctx.strokeStyle = 'rgb(255, 0, 0)';
-    ctx.lineWidth = 5;
+    ctx.lineWidth = 3;
     ctx.beginPath();
 
     for (let i = 0; i < N * N; i++) {
@@ -504,7 +504,7 @@ function drawIpRangeBlocks(ctx, startBlock, endBlock, color) {
     const offsetY = (viewportHeight - drawHeight) / 2;
 
     ctx.fillStyle = color;
-    ctx.lineWidth = 5;
+    ctx.lineWidth = 2;
     ctx.strokeStyle = 'rgb(255, 0, 0)';
 
     let d = startBlock;
