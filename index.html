@@ -78,6 +78,22 @@
             <option value="16">16x</option>
           </select>
         </p>
+
+        <!-- Hilbert Curve Options -->
+        <div>
+          <p>
+            <label>
+              <input type="checkbox" id="hilbert-toggle" />
+              Show Hilbert Curve
+            </label>
+          </p>
+
+          <p>
+            <label for="hilbert-order">Hilbert Order</label>
+            <input id="hilbert-order" type="range" min="0" max="12" value="0" />
+            <span id="hilbert-order-label">Off</span>
+          </p>
+        </div>
       </div>
     </div>
     <script src="script.js"></script>

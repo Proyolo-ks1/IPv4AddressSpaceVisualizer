@@ -8,6 +8,14 @@ const canvas = document.createElement('canvas');
 const viewport = document.getElementById('image-viewport');
 const minimap = document.getElementById('viewport-minimap');
 const rightInfoPanel = document.getElementById('ip-info-side-panel');
+const hilbertToggle = document.getElementById('hilbert-toggle');
+const hilbertOrderSlider = document.getElementById('hilbert-order');
+const hilbertOrderLabel = document.getElementById('hilbert-order-label');
+
+const hilbertState = {
+    enabled: false,
+    order: 0
+};
 
 // Canvasses
 const baseCanvas = document.getElementById('base-canvas');
@@ -42,36 +50,84 @@ const mapState = {
     hilbertOffset: 0,       // top-left Hilbert index of current view
 };
 
-// --- Hilbert functions ---
+// MARK: Helpers - Graphic
+
+function drawCross(ctx, x, y, size = 6) {
+    ctx.beginPath();
+    ctx.moveTo(x - size, y - size);
+    ctx.lineTo(x + size, y + size);
+    ctx.moveTo(x + size, y - size);
+    ctx.lineTo(x - size, y + size);
+    ctx.stroke();
+}
+
+// MARK: Helpers - Logic
+
+// --- Hilbert curve: 2D grid (x,y) -> 1D index d ---
+// n: grid size (must be power of 2, e.g. 2,4,8,...)
+// x, y: integer coordinates in range [0, n-1]
+// returns: Hilbert curve index in range [0, n*n - 1]
 function xy2d(n, x, y) {
     let d = 0, s = n >> 1, rx, ry;
+
     while (s > 0) {
+        // rx, ry determine which quadrant of the current square (size s) we are in
         rx = (x & s) ? 1 : 0;
         ry = (y & s) ? 1 : 0;
+
+        // accumulate Hilbert distance contribution of this quadrant
         d += s * s * ((3 * rx) ^ ry);
+
+        // rotate/flip coordinates into next sub-square
         [x, y] = rot(s, x, y, rx, ry);
+
+        // move to next smaller scale
         s >>= 1;
     }
+
     return d;
 }
 
+// --- Hilbert curve: 1D index d -> 2D grid (x,y) ---
+// n: grid size (same domain as xy2d, power of 2)
+// d: Hilbert index in range [0, n*n - 1]
+// returns: {x, y} grid coordinate in range [0, n-1]
+function d2xy(n, d) {
+    let x = 0, y = 0;
+    let t = d;
+
+    // reconstruct coordinate bit-by-bit per quadrant level
+    for (let s = 1; s < n; s *= 2) {
+        const rx = 1 & (t / 2);
+        const ry = 1 & (t ^ rx);
+
+        const res = rot(s, x, y, rx, ry);
+        x = res[0];
+        y = res[1];
+
+        x += s * rx;
+        y += s * ry;
+
+        t /= 4;
+    }
+
+    return { x, y };
+}
+
+// --- Rotation helper for Hilbert transform ---
+// n: current square size
+// x, y: current coordinates in that square
+// rx, ry: quadrant flags (0/1)
+// returns: rotated (x,y) for correct Hilbert ordering continuity
 function rot(n, x, y, rx, ry) {
     if (ry === 0) {
-        if (rx === 1) { x = n - 1 - x; y = n - 1 - y; }
+        if (rx === 1) {
+            x = n - 1 - x;
+            y = n - 1 - y;
+        }
         [x, y] = [y, x];
     }
     return [x, y];
-}
-
-// --- Utility: convert Hilbert index to IP ---
-function hilbertToIP(index) {
-    const ipBase = index * 256;
-    return [
-        (ipBase >>> 24) & 0xFF,
-        (ipBase >>> 16) & 0xFF,
-        (ipBase >>> 8) & 0xFF,
-        ipBase & 0xFF
-    ];
 }
 
 // --- Convert mouse event to coordinates relative to image ---
@@ -83,22 +139,39 @@ function getImageCoords(mouseEvent) {
 }
 
 // --- Update IP range tooltip ---
-function updateIPRange(tileX, tileY, tileSize) {
-    const x0 = tileX * tileSize;
-    const y0 = tileY * tileSize;
+function updateIPRange(tileX, tileY, order) {
+    const N = 2 ** order;
 
-    const x1 = Math.min(x0 + tileSize - 1, IMAGE_SIZE - 1);
-    const y1 = Math.min(y0 + tileSize - 1, IMAGE_SIZE - 1);
+    const tileHilbertIndex = xy2d(N, tileX, tileY);
 
-    const start = xy2d(IMAGE_SIZE, x0, y0);
-    const end   = xy2d(IMAGE_SIZE, x1, y1);
+    // At lower grid orders, one visible tile covers many 4096x4096 pixels.
+    // Each image pixel represents one /24 block, meaning 256 IP addresses.
+    const pixelsPerTileSide = IMAGE_SIZE / N;
+    const blocksPerTile = pixelsPerTileSide * pixelsPerTileSide;
 
-    const [s1,s2,s3,s4] = hilbertToIP(start);
-    const [e1,e2,e3,e4] = hilbertToIP(end);
+    const startBlock = tileHilbertIndex * blocksPerTile;
+    const endBlock = startBlock + blocksPerTile - 1;
+
+    const startAddress = startBlock * 256;
+    const endAddress = endBlock * 256 + 255;
+
+    const [s1, s2, s3, s4] = addressToIP(startAddress);
+    const [e1, e2, e3, e4] = addressToIP(endAddress);
 
     ipRangeConsoleTooltip.textContent =
         `Tile IP range: ${s1}.${s2}.${s3}.${s4} - ${e1}.${e2}.${e3}.${e4}`;
 }
+
+function addressToIP(address) {
+    return [
+        (address >>> 24) & 0xFF,
+        (address >>> 16) & 0xFF,
+        (address >>> 8) & 0xFF,
+        address & 0xFF
+    ];
+}
+
+// MARK: drawCensusMap
 
 // Draw Census Map
 const img = new Image();
@@ -184,6 +257,8 @@ function drawScaledImage(ctx, img, sx, sy, sw, sh, dx, dy, dw, dh) {
     ctx.drawImage(tempCanvas, 0, 0, sw, sh, dx, dy, dw, dh);
 }
 
+// MARK: drawGrid
+
 // TEMP DEBUG
 const infoDivGridSize = document.createElement('div');
 infoDivGridSize.style.fontSize = '14px';
@@ -246,7 +321,123 @@ function drawGrid() {
         gridCtx.lineTo(offsetX + gridWidth, py);
         gridCtx.stroke();
     }
+    
+    drawHilbertOverlay();
 }
+
+// MARK: drawHilbertOverlay
+
+function drawHilbertOverlay() {
+    const ctx = gridCtx;
+    const viewportWidth = viewport.clientWidth;
+    const viewportHeight = viewport.clientHeight;
+
+    if (!hilbertState.enabled || hilbertState.order === 0) return;
+
+    const baseScale = Math.min(viewportWidth, viewportHeight) / IMAGE_SIZE;
+    const totalScale = baseScale * mapState.zoomFactor;
+
+    const gridWidth = IMAGE_SIZE * totalScale;
+    const gridHeight = IMAGE_SIZE * totalScale;
+
+    const offsetX = (viewportWidth - gridWidth) / 2;
+    const offsetY = (viewportHeight - gridHeight) / 2;
+
+    const N = 2 ** hilbertState.order;
+
+    const cellSize = (IMAGE_SIZE / N) * totalScale;
+
+    const points = [];
+
+    ctx.strokeStyle = 'rgb(255, 0, 0)';
+    ctx.lineWidth = 5;
+    ctx.beginPath();
+
+    for (let i = 0; i < N * N; i++) {
+        const { x, y } = d2xy(N, i);
+
+        const px = offsetX + x * cellSize + cellSize / 2;
+        const py = offsetY + y * cellSize + cellSize / 2;
+
+        points.push({ px, py });
+
+        if (i === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+    }
+
+    ctx.stroke();
+
+    const size = cellSize / 4;
+    ctx.fillStyle = 'rgb(0, 255, 0)';
+
+    // ---------- START (centered on point 0) ----------
+    {
+        const p0 = points[0];
+        const p1 = points[1];
+
+        const angle = Math.atan2(p1.py - p0.py, p1.px - p0.px);
+
+        const cx = p0.px;
+        const cy = p0.py;
+
+        const tipX = cx + Math.cos(angle) * size * 0.6;
+        const tipY = cy + Math.sin(angle) * size * 0.6;
+
+        const baseX = cx - Math.cos(angle) * size * 0.4;
+        const baseY = cy - Math.sin(angle) * size * 0.4;
+
+        const halfW = size * 0.5;
+
+        const leftX = baseX + Math.cos(angle + Math.PI / 2) * halfW;
+        const leftY = baseY + Math.sin(angle + Math.PI / 2) * halfW;
+
+        const rightX = baseX + Math.cos(angle - Math.PI / 2) * halfW;
+        const rightY = baseY + Math.sin(angle - Math.PI / 2) * halfW;
+
+        ctx.beginPath();
+        ctx.moveTo(tipX, tipY);
+        ctx.lineTo(leftX, leftY);
+        ctx.lineTo(rightX, rightY);
+        ctx.closePath();
+        ctx.fill();
+    }
+
+    // ---------- END (centered on last point) ----------
+    {
+        const last = points.length - 1;
+
+        const p0 = points[last - 1];
+        const p1 = points[last];
+
+        const angle = Math.atan2(p1.py - p0.py, p1.px - p0.px);
+
+        const cx = p1.px;
+        const cy = p1.py;
+
+        const tipX = cx + Math.cos(angle) * size * 0.6;
+        const tipY = cy + Math.sin(angle) * size * 0.6;
+
+        const baseX = cx - Math.cos(angle) * size * 0.4;
+        const baseY = cy - Math.sin(angle) * size * 0.4;
+
+        const halfW = size * 0.5;
+
+        const leftX = baseX + Math.cos(angle + Math.PI / 2) * halfW;
+        const leftY = baseY + Math.sin(angle + Math.PI / 2) * halfW;
+
+        const rightX = baseX + Math.cos(angle - Math.PI / 2) * halfW;
+        const rightY = baseY + Math.sin(angle - Math.PI / 2) * halfW;
+
+        ctx.beginPath();
+        ctx.moveTo(tipX, tipY);
+        ctx.lineTo(leftX, leftY);
+        ctx.lineTo(rightX, rightY);
+        ctx.closePath();
+        ctx.fill();
+    }
+}
+
+// MARK: drawTileAndPointer
 
 let lastTile = {
     x: null,
@@ -333,7 +524,7 @@ function drawTileAndPointer(mouseX, mouseY) {
                 level
             };
 
-            updateIPRange(tileX, tileY, tileSize);
+            updateIPRange(tileX, tileY, level);
         }
     }
 
@@ -344,9 +535,11 @@ function drawTileAndPointer(mouseX, mouseY) {
 
     
     infoDivTile.innerHTML = `== INFO TILE ==<br>
-                            • tileChanged: ${tileChanged}<br>
-                            • tileSize: ${tileSize}`
+                            • drawHeight: ${drawHeight.toFixed(2)}<br>
+                            • drawWidth: ${drawWidth.toFixed(2)}`
 }
+
+// MARK: EventListeners
 
 // --- Mouse move handler ---
 viewport.addEventListener('mousemove', (e) => {
@@ -400,6 +593,21 @@ zoomStepSelect.addEventListener('change', (e) => {
     mapState.zoomStep = parseInt(e.target.value, 10);
     console.log('Zoom step updated to:', mapState.zoomStep);
     drawGrid();
+    drawHilbertOverlay();
+});
+
+// Hilbert Curve selection
+hilbertToggle.addEventListener('change', () => {
+    hilbertState.enabled = hilbertToggle.checked;
+    drawGrid();
+});
+
+hilbertOrderSlider.addEventListener('input', () => {
+    hilbertState.order = Number(hilbertOrderSlider.value);
+
+    hilbertOrderLabel.textContent =
+        hilbertState.order === 0 ? 'Off' : `Order ${hilbertState.order}`;
+    drawGrid();
 });
 
 // Browser Window
@@ -439,6 +647,10 @@ window.addEventListener('resize', onViewportChange);
 window.addEventListener('DOMContentLoaded', () => {
     onViewportChange();
     mapState.zoomStep = parseInt(zoomStepSelect.value, 10);
+
+    // uncheck hilbert curve checkbox 
+    hilbertToggle.checked = false;
+    hilbertState.enabled = false;
 });
 
 
