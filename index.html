@@ -56,6 +56,7 @@
           <!-- JavaScript Image Rendering -->
           <canvas id="base-canvas"></canvas>
           <canvas id="grid-canvas"></canvas>
+          <canvas id="special-ranges-canvas"></canvas>
           <canvas id="overlay-canvas"></canvas>
         </div>
         <!-- Tooltip near cursor -->
@@ -92,6 +93,16 @@
             <label for="hilbert-order">Hilbert Order</label>
             <input id="hilbert-order" type="range" min="0" max="12" value="0" />
             <span id="hilbert-order-label">Off</span>
+          </p>
+        </div>
+
+        <!-- Special IP Ranges -->
+        <div>
+          <p>
+            <label>
+              <input type="checkbox" id="special-ranges-toggle" />
+              Special IP ranges
+            </label>
           </p>
         </div>
       </div>

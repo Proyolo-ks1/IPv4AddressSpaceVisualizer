@@ -11,6 +11,7 @@ const rightInfoPanel = document.getElementById('ip-info-side-panel');
 const hilbertToggle = document.getElementById('hilbert-toggle');
 const hilbertOrderSlider = document.getElementById('hilbert-order');
 const hilbertOrderLabel = document.getElementById('hilbert-order-label');
+const specialRangesToggle = document.getElementById('special-ranges-toggle');
 
 const hilbertState = {
     enabled: false,
@@ -20,15 +21,18 @@ const hilbertState = {
 // Canvasses
 const baseCanvas = document.getElementById('base-canvas');
 const gridCanvas = document.getElementById('grid-canvas');
+const specialRangesCanvas = document.getElementById('special-ranges-canvas');
 const overlayCanvas = document.getElementById('overlay-canvas');
 
 // Canvas Configuration
 const baseCtx = baseCanvas.getContext('2d');
 const gridCtx = gridCanvas.getContext('2d');
+const specialRangesCtx = specialRangesCanvas.getContext('2d');
 const overlayCtx = overlayCanvas.getContext('2d');
 baseCtx.imageSmoothingEnabled = true;
 baseCtx.imageSmoothingQuality = 'high';
 gridCtx.imageSmoothingEnabled = false;
+specialRangesCtx.imageSmoothingEnabled = false;
 overlayCtx.imageSmoothingEnabled = false;
 
 minimap.addEventListener('contextmenu', (e) => {
@@ -62,6 +66,36 @@ function drawCross(ctx, x, y, size = 6) {
 }
 
 // MARK: Helpers - Logic
+
+function ipToAddress(ip) {
+    const parts = ip.split('.').map(Number);
+
+    return (
+        parts[0] * 2 ** 24 +
+        parts[1] * 2 ** 16 +
+        parts[2] * 2 ** 8 +
+        parts[3]
+    );
+}
+
+function addressToIP(address) {
+    return [
+        Math.floor(address / 2 ** 24) % 256,
+        Math.floor(address / 2 ** 16) % 256,
+        Math.floor(address / 2 ** 8) % 256,
+        address % 256
+    ];
+}
+
+function rangeToBlocks(startIP, endIP) {
+    const startAddress = ipToAddress(startIP);
+    const endAddress = ipToAddress(endIP);
+
+    return {
+        startBlock: Math.floor(startAddress / 256),
+        endBlock: Math.floor(endAddress / 256)
+    };
+}
 
 // --- Hilbert curve: 2D grid (x,y) -> 1D index d ---
 // n: grid size (must be power of 2, e.g. 2,4,8,...)
@@ -160,15 +194,6 @@ function updateIPRange(tileX, tileY, order) {
 
     ipRangeConsoleTooltip.textContent =
         `Tile IP range: ${s1}.${s2}.${s3}.${s4} - ${e1}.${e2}.${e3}.${e4}`;
-}
-
-function addressToIP(address) {
-    return [
-        (address >>> 24) & 0xFF,
-        (address >>> 16) & 0xFF,
-        (address >>> 8) & 0xFF,
-        address & 0xFF
-    ];
 }
 
 // MARK: drawCensusMap
@@ -437,6 +462,161 @@ function drawHilbertOverlay() {
     }
 }
 
+// MARK: drawIpRangeBlocks
+
+let specialRangesOpacity = 1;
+
+const SPECIAL_IP_RANGES = [
+    { name: 'Class A', start: '0.0.0.0', end: '127.255.255.255', color: 'rgba(80, 180, 255, 0.12)' },
+    { name: 'Class B', start: '128.0.0.0', end: '191.255.255.255', color: 'rgba(80, 255, 160, 0.12)' },
+    { name: 'Class C', start: '192.0.0.0', end: '223.255.255.255', color: 'rgba(255, 220, 80, 0.12)' },
+    { name: 'Class D / Multicast', start: '224.0.0.0', end: '239.255.255.255', color: 'rgba(255, 120, 80, 0.18)' },
+    { name: 'Class E / Reserved', start: '240.0.0.0', end: '255.255.255.255', color: 'rgba(190, 120, 255, 0.18)' },
+
+    { name: 'Private Class A', start: '10.0.0.0', end: '10.255.255.255', color: 'rgba(0, 255, 255, 0.45)' },
+    { name: 'Private Class B', start: '172.16.0.0', end: '172.31.255.255', color: 'rgba(0, 255, 120, 0.45)' },
+    { name: 'Private Class C', start: '192.168.0.0', end: '192.168.255.255', color: 'rgba(255, 255, 0, 0.5)' },
+
+    { name: 'Loopback', start: '127.0.0.0', end: '127.255.255.255', color: 'rgba(255, 0, 80, 0.5)' },
+    { name: 'Link-local / APIPA', start: '169.254.0.0', end: '169.254.255.255', color: 'rgba(255, 140, 0, 0.5)' },
+    { name: 'CGNAT', start: '100.64.0.0', end: '100.127.255.255', color: 'rgba(255, 255, 255, 0.35)' },
+
+    { name: 'TEST-NET-1', start: '192.0.2.0', end: '192.0.2.255', color: 'rgba(255, 0, 255, 0.7)' },
+    { name: 'TEST-NET-2', start: '198.51.100.0', end: '198.51.100.255', color: 'rgba(255, 0, 255, 0.7)' },
+    { name: 'TEST-NET-3', start: '203.0.113.0', end: '203.0.113.255', color: 'rgba(255, 0, 255, 0.7)' },
+    { name: 'Benchmarking', start: '198.18.0.0', end: '198.19.255.255', color: 'rgba(255, 80, 180, 0.45)' },
+
+    { name: 'Unspecified', start: '0.0.0.0', end: '0.0.0.0', color: 'rgba(255, 255, 255, 0.9)' },
+    { name: 'Limited broadcast', start: '255.255.255.255', end: '255.255.255.255', color: 'rgba(255, 255, 255, 0.9)' }
+];
+
+function drawIpRangeBlocks(ctx, startBlock, endBlock, color) {
+    const viewportWidth = viewport.clientWidth;
+    const viewportHeight = viewport.clientHeight;
+
+    const baseScale = Math.min(viewportWidth, viewportHeight) / IMAGE_SIZE;
+    const totalScale = baseScale * mapState.zoomFactor;
+
+    const drawWidth = IMAGE_SIZE * totalScale;
+    const drawHeight = IMAGE_SIZE * totalScale;
+
+    const offsetX = (viewportWidth - drawWidth) / 2;
+    const offsetY = (viewportHeight - drawHeight) / 2;
+
+    ctx.fillStyle = color;
+    ctx.lineWidth = 5;
+    ctx.strokeStyle = 'rgb(255, 0, 0)';
+
+    let d = startBlock;
+    let largestRect = null;
+
+    while (d <= endBlock) {
+        const remaining = endBlock - d + 1;
+
+        let len = 1;
+
+        while (
+            len * 4 <= remaining &&
+            d % (len * 4) === 0
+        ) {
+            len *= 4;
+        }
+
+        const side = Math.sqrt(len);
+        const n = IMAGE_SIZE / side;
+        const tileIndex = d / len;
+        const { x, y } = d2xy(n, tileIndex);
+
+        const screenX = offsetX + x * side * totalScale;
+        const screenY = offsetY + y * side * totalScale;
+        const screenSize = side * totalScale;
+
+        ctx.fillRect(screenX, screenY, screenSize, screenSize);
+        ctx.strokeRect(screenX, screenY, screenSize, screenSize);
+
+        if (!largestRect || screenSize > largestRect.size) {
+            largestRect = {
+                x: screenX,
+                y: screenY,
+                size: screenSize
+            };
+        }
+
+        d += len;
+    }
+
+    return largestRect;
+}
+
+function drawRangeLabel(ctx, label, rect) {
+    if (!rect) return;
+
+    const minLabelSize = 36;
+
+    if (rect.size < minLabelSize) return;
+
+    const x = rect.x + rect.size / 2;
+    const y = rect.y + rect.size / 2;
+
+    const fontSize = Math.max(10, Math.min(18, rect.size / 8));
+
+    ctx.save();
+
+    ctx.font = `700 ${fontSize}px system-ui, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    const metrics = ctx.measureText(label);
+    const paddingX = 6;
+    const paddingY = 3;
+    const boxWidth = metrics.width + paddingX * 2;
+    const boxHeight = fontSize + paddingY * 2;
+
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.65)';
+    ctx.fillRect(
+        x - boxWidth / 2,
+        y - boxHeight / 2,
+        boxWidth,
+        boxHeight
+    );
+
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+    ctx.fillText(label, x, y);
+
+    ctx.restore();
+}
+
+function drawSpecialRangesOverlay() {
+    const viewportWidth = viewport.clientWidth;
+    const viewportHeight = viewport.clientHeight;
+
+    specialRangesCtx.clearRect(0, 0, viewportWidth, viewportHeight);
+
+    if (!specialRangesToggle.checked) return;
+
+    const labels = [];
+
+    for (const range of SPECIAL_IP_RANGES) {
+        const { startBlock, endBlock } = rangeToBlocks(range.start, range.end);
+
+        const labelRect = drawIpRangeBlocks(
+            specialRangesCtx,
+            startBlock,
+            endBlock,
+            range.color
+        );
+
+        labels.push({
+            name: range.name,
+            rect: labelRect
+        });
+    }
+
+    for (const label of labels) {
+        drawRangeLabel(specialRangesCtx, label.name, label.rect);
+    }
+}
+
 // MARK: drawTileAndPointer
 
 let lastTile = {
@@ -583,9 +763,7 @@ viewport.addEventListener('wheel', (e) => {
     
     infoDivZoom.innerHTML = `== INFO ZOOM ==<br>
                             • Zoom: ${mapState.zoomFactor.toFixed(2)}x`;
-    drawCensusMap();
-    drawGrid();
-    drawTileAndPointer();
+    updateCanvas();
 }, { passive: false }); // passive: false required to use preventDefault
 
 // Zoomstep dropdown selection
@@ -596,7 +774,7 @@ zoomStepSelect.addEventListener('change', (e) => {
     drawHilbertOverlay();
 });
 
-// Hilbert Curve selection
+// Hilbert Curve toggle / selection
 hilbertToggle.addEventListener('change', () => {
     hilbertState.enabled = hilbertToggle.checked;
     drawGrid();
@@ -608,6 +786,11 @@ hilbertOrderSlider.addEventListener('input', () => {
     hilbertOrderLabel.textContent =
         hilbertState.order === 0 ? 'Off' : `Order ${hilbertState.order}`;
     drawGrid();
+});
+
+// Special Ranges toggle
+specialRangesToggle.addEventListener('change', () => {
+    drawSpecialRangesOverlay();
 });
 
 // Browser Window
@@ -622,12 +805,13 @@ function logCanvasAndViewport() {
 
 function updateCanvas() {
     drawCensusMap();
-    drawGrid()
-    drawTileAndPointer()
+    drawGrid();
+    drawSpecialRangesOverlay();
+    drawTileAndPointer();
 }
 
 function onViewportChange() {
-    logCanvasAndViewport()
+    logCanvasAndViewport();
 
     // Resize canvas to fill viewport
     const viewportWidth = viewport.clientWidth;
@@ -636,10 +820,12 @@ function onViewportChange() {
     baseCanvas.height = viewportHeight;
     gridCanvas.width = viewportWidth;
     gridCanvas.height = viewportHeight;
+    specialRangesCanvas.width = viewportWidth;
+    specialRangesCanvas.height = viewportHeight;
     overlayCanvas.width = viewportWidth;
     overlayCanvas.height = viewportHeight;
 
-    updateCanvas()
+    updateCanvas();
 }
 window.addEventListener('resize', onViewportChange);
 
